@@ -7,9 +7,9 @@
 .extern init_c
 
 BEGIN_FUNC(_start)
-	mrs	x8, mpidr_el1
+	mrs	x8, mpidr_el1	/* mrs: state register to gr	msr: gr to state register */
 	and	x8, x8,	#0xFF
-	cbz	x8, primary
+	cbz	x8, primary	/* CBZ  比较（Compare），如果结果为零（Zero）就转移（只能跳到后面的指令） */
 
   /* hang all secondary processors before we intorduce multi-processors */
 secondary_hang:
@@ -28,5 +28,5 @@ primary:
 	bl 	init_c
 
 	/* Should never be here */
-	b	.
+	b	.	  /* B.相当于while(1); . is actually the address of this line of code */
 END_FUNC(_start)

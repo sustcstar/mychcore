@@ -40,6 +40,7 @@ typedef __builtin_va_list va_list;
 #define va_arg(v,l)     __builtin_va_arg(v,l)
 #define va_copy(d,s)    __builtin_va_copy(d,s)
 
+// simple_outputchar(out, *format);
 static void simple_outputchar(char **str, char c)
 {
 	if (str) {
@@ -97,6 +98,7 @@ static int prints(char **out, const char *string, int width, int flags)
 // you may need to call `prints`
 // you do not need to print prefix like "0x", "0"...
 // Remember the most significant digit is printed first.
+// static: 其他文件中可以定义相同名字的函数，不会发生冲突, 静态函数不能被工程内其他文件所用
 static int printk_write_num(char **out, long long i, int base, int sign,
 			    int width, int flags, int letbase)
 {
@@ -119,6 +121,22 @@ static int printk_write_num(char **out, long long i, int base, int sign,
 	// store the digitals in the buffer `print_buf`:
 	// 1. the last postion of this buffer must be '\0'
 	// 2. the format is only decided by `base` and `letbase` here
+	s=print_buf+PRINT_BUF_LEN;
+	*s='\0';
+	while(u>0){
+		s--;
+		t=u%base;
+		if(t<=9){
+			*s=t+'0';
+		}
+		else {
+			if(letbase)
+				*s=t-10+'a';
+			else
+				*s=t-10+'A';
+		}
+		u/=base;
+	}
 
 	if (neg) {
 		if (width && (flags & PAD_ZERO)) {
@@ -133,6 +151,7 @@ static int printk_write_num(char **out, long long i, int base, int sign,
 	return pc + prints(out, s, width, flags);
 }
 
+// simple_vsprintf(NULL, fmt, va);
 static int simple_vsprintf(char **out, const char *format, va_list ap)
 {
 	int width, flags;
@@ -154,6 +173,7 @@ static int simple_vsprintf(char **out, const char *format, va_list ap)
 		void *p;
 	} u;
 
+	// parse format string
 	for (; *format != 0; ++format) {
 		if (*format == '%') {
 			++format;

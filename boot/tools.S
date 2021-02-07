@@ -56,7 +56,21 @@
 #define SCR_EL3_NS              (1 << 0)
 #define SCR_EL3_RW              (1 << 10)
 
+/* Holds the saved process state when an exception is taken to EL3 */
+// Debug exception mask. Set to the value of PSTATE.D on taking an exception to EL3, and copied to 
+// PSTATE.D on executing an exception return operation in EL3.
+// SError interrupt mask. Set to the value of PSTATE.A on taking an exception to EL3, and copied to 
+// PSTATE.A on executing an exception return operation in EL3.
+// IRQ interrupt mask. Set to the value of PSTATE.I on taking an exception to EL3, and copied to 
+// PSTATE.I on executing an exception return operation in EL3.
+// FIQ interrupt mask. Set to the value of PSTATE.F on taking an exception to EL3, and copied to 
+// PSTATE.F on executing an exception return operation in EL3.
+// 把所有异常屏蔽掉
 #define SPSR_ELX_DAIF           (0b1111 << 6)
+// M[3:2] is set to the value of PSTATE.EL on taking an exception to EL3 and copied to 
+// PSTATE.EL on executing an exception return operation in EL3.
+// M[0] is set to the value of PSTATE.SP on taking an exception to EL3 and copied to 
+// PSTATE.SP on executing an exception return operation in EL3
 #define SPSR_ELX_EL1H           (0b0101)
 
 #define ICH_HCR_EL2             S3_4_C12_C11_0
@@ -72,13 +86,15 @@ BEGIN_FUNC(arm64_elX_to_el1)
 	beq .Lin_el2
 	// Otherwise, we are in EL3.
 
-	// Set EL2 to 64bit and enable the HVC instruction.
+	// Set EL2 to 64bit and enable the HVC instruction. all ELs below EL3 is in NS world
 	mrs x9, scr_el3
 	mov x10, SCR_EL3_NS | SCR_EL3_HCE | SCR_EL3_RW
 	orr x9, x9, x10
 	msr scr_el3, x9
 
 	// Set the return address and exception level.
+	// adr :相对寻址,与当前位置有关
+	// ldr :绝对寻址,与当前位置无关
 	adr x9, .Ltarget
 	msr elr_el3, x9
 	mov x9, SPSR_ELX_DAIF | SPSR_ELX_EL1H
@@ -86,10 +102,12 @@ BEGIN_FUNC(arm64_elX_to_el1)
 
 .Lin_el2:
 	// Disable EL1 timer traps and the timer offset.
+	// CNTHCTL_EL2_EL1PCEN: Controls the generation of an event stream from the physical counter, and access from EL1 to the 
+	// physical counter and the EL1 physical timer.
 	mrs x9, cnthctl_el2
 	orr x9, x9, CNTHCTL_EL2_EL1PCEN | CNTHCTL_EL2_EL1PCTEN
 	msr cnthctl_el2, x9
-	msr cntvoff_el2, xzr
+	msr cntvoff_el2, xzr // xzr: always zero // virtual offset = 0
 
 	// Disable stage 2 translations.
 	msr vttbr_el2, xzr
@@ -103,6 +121,7 @@ BEGIN_FUNC(arm64_elX_to_el1)
 	msr cpacr_el1, x9
 
 	// Check whether the GIC system registers are supported.
+	// 0b0000 GIC CPU interface system registers not implemented.
 	mrs x9, id_aa64pfr0_el1
 	and x9, x9, ID_AA64PFR0_EL1_GIC
 	cbz x9, .Lno_gic_sr
