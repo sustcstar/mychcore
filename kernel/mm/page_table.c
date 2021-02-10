@@ -84,7 +84,7 @@ static int set_pte_flags(pte_t * entry, vmr_prop_t flags, int kind)
  * alloc: if true, allocate a ptp when missing
  *
  */
-static int get_next_ptp(ptp_t * cur_ptp, u32 level, vaddr_t va,
+int get_next_ptp(ptp_t * cur_ptp, u32 level, vaddr_t va,
 			ptp_t ** next_ptp, pte_t ** pte, bool alloc)
 {
 	u32 index = 0;
