@@ -90,15 +90,40 @@ static struct page *split_page(struct phys_mem_pool *pool, u64 order,
 			       struct page *page)
 {
 	// <lab2>
-	struct page *split_page = NULL;
-	return split_page;
+	// 当该页已经被分配 || 该页已经是最小的4K页 || 该页的order比函数传入的order要小
+	if(page->allocated == 1 || page->order == 0 || page->order <= order){
+		return page;
+	}
+	// 若该页的order比函数传入的order大于1
+	if(page->order - order > 1){
+		page = split_page(pool, order + 1, page); // 当函数传入的order比page的order刚好小1的时候，是最后一次地柜
+	}
+
+	struct free_list* origin_order_free_list = &(pool->free_lists[page->order]); // 原先的freelist
+	struct free_list* split_order_free_list = &(pool->free_lists[page->order - 1]); // 将要分裂的freelist
+
+	page->order--; // 由于要分裂，该页的order - 1
+	origin_order_free_list->nr_free--; // 由于要失去一个页，该free_list的nrfree - 1
+	list_del(&page->node); // 从original_freelist中删去这个要被分裂的页
+
+	// 目前可以确保page没有被allocated
+	struct page *buddy = get_buddy_chunk(pool, page); // 得到buddy页
+	buddy->allocated = 0;
+	buddy->order = page->order;
+	
+	// 把分开的两个页拿出来放进下一级freelist中，随后返回其中一个page
+	split_order_free_list->nr_free += 2;
+	list_add(&page->node, &split_order_free_list->free_list);
+	list_add(&buddy->node, &split_order_free_list->free_list);
+		
+	return page;
 	// </lab2>
 }
 
 /*
  * buddy_get_pages: get free page from buddy system.
  * pool @ physical memory structure reserved in the kernel
- * order @ get the (1<<order) continous pages from the buddy system
+ * order @ get the (1<<order) continous pages from the buddy system 仅仅只是分配一个order==order的页罢了
  * 
  * Hints: Find the corresonding free_list which can allocate 1<<order
  * continuous pages and don't forget to split the list node after allocation   
@@ -106,7 +131,36 @@ static struct page *split_page(struct phys_mem_pool *pool, u64 order,
 struct page *buddy_get_pages(struct phys_mem_pool *pool, u64 order)
 {
 	// <lab2>
+	if(order >= BUDDY_MAX_ORDER){
+		return NULL;
+	}
 	struct page *page = NULL;
+	struct free_list *this_order_free_list = &(pool->free_lists[order]);
+	if(this_order_free_list->nr_free == 0){ // need to split larger page chunk
+		u64 larger_order = order;
+		while(this_order_free_list->nr_free == 0){
+			larger_order++;
+			if(larger_order >= BUDDY_MAX_ORDER){
+				return NULL;
+			}
+			this_order_free_list = &(pool->free_lists[larger_order]);
+		}
+		struct list_head *list_node = this_order_free_list->free_list.next;
+		struct page *page_split = list_entry(list_node, struct page, node);
+		page = split_page(pool, order, page_split);
+
+		page->allocated = 1;
+		struct free_list *page_order_free_list = &(pool->free_lists[page->order]);
+		page_order_free_list->nr_free--;
+		list_del(list_node);
+	}else{ //just allocate with this order
+		struct list_head *list_node = this_order_free_list->free_list.next; //skip list header, which should be retained
+		page = list_entry(list_node, struct page, node);
+		page->allocated = 1;
+
+		this_order_free_list->nr_free--;
+		list_del(list_node);
+	}
 
 	return page;
 	// </lab2>
@@ -123,10 +177,36 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, u64 order)
  */
 static struct page *merge_page(struct phys_mem_pool *pool, struct page *page)
 {
-	// <lab2>
 
-	struct page *merge_page = NULL;
-	return merge_page;
+	// <lab2>
+	if(page->order >= BUDDY_MAX_ORDER-1 || page->allocated == 1){
+		return page;
+	}
+	struct page *buddy = get_buddy_chunk(pool, page); // 得到buddy page
+	if(buddy == NULL || buddy->allocated == 1 || buddy->order != page->order){ //buddy not exists/allocated/splitted
+		return page; //terminate recursion
+	}
+
+	if((u64)page > (u64)buddy){ //let page to be the former chunk, buudy the latter
+		struct page *tmp = page;
+		page = buddy;
+		buddy = tmp;
+	}
+	struct free_list* origin_order_free_list = &(pool->free_lists[page->order]);
+	struct free_list* merge_order_free_list = &(pool->free_lists[page->order+1]);
+
+	//delete 2 nodes belonging to page and buddy
+	origin_order_free_list->nr_free -= 2;
+	list_del(&page->node);
+	list_del(&buddy->node);
+
+	//merge, and add 1 node to free_list with (order+1)
+	page->order++;
+	merge_order_free_list->nr_free++;
+	list_add(&page->node, &merge_order_free_list->free_list);
+
+	//recursive merge buddy
+	return merge_page(pool, page); // merge好的page可能还能继续merge
 	// </lab2>
 }
 
@@ -140,7 +220,12 @@ static struct page *merge_page(struct phys_mem_pool *pool, struct page *page)
 void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
 {
 	// <lab2>
+	page->allocated = 0;
+	struct free_list* origin_order_free_list = &(pool->free_lists[page->order]);
+	origin_order_free_list->nr_free++;
+	list_add(&page->node, &origin_order_free_list->free_list);
 
+	page = merge_page(pool, page);
 	// </lab2>
 }
 
@@ -149,6 +234,9 @@ void *page_to_virt(struct phys_mem_pool *pool, struct page *page)
 	u64 addr;
 
 	/* page_idx * BUDDY_PAGE_SIZE + start_addr */
+	// 同类型相减的计算原则为
+	// T *a, *b;
+	// a-b=(a与b值的算术差值)/sizeof(T);
 	addr = (page - pool->page_metadata) * BUDDY_PAGE_SIZE +
 	    pool->pool_start_addr;
 	return (void *)addr;

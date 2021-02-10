@@ -47,7 +47,7 @@ struct phys_mem_pool {
 	 * The start virtual address (for used in kernel) of
 	 * the metadata area of this pool.
 	 */
-	struct page *page_metadata;
+	struct page *page_metadata; // 从这里往后边，每一个都是一个struct page的指针
 
 	/* The free list of different free-memory-chunk orders. */
 	struct free_list free_lists[BUDDY_MAX_ORDER];
