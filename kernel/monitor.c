@@ -30,6 +30,18 @@ int stack_backtrace()
 	printk("Stack backtrace:\n");
 
 	// Your code here.
+	u64* fp=(u64*)(*(u64*)read_fp());	// 输出的FP为调用stack_backtrace的函数的FP，故加一层间接访问
+	while(*(fp) != 0){	// 递归到没有父函数时停止
+        // 地址为FP+8处的值为当前函数LR，地址为FP处的值为父函数的FP，FP的值就是当前函数的FP
+		printk("LR %lx FP %lx Args ",*(fp+1),fp);	
+		u64* p=fp-2; // 地址为FP-16处开始的值为当前函数的参数列表
+		for(int k=5;k>0;k--){
+			printk("%d ",*p);
+			p++;
+		}
+		printk("\n");
+		fp = (u64*) *fp; // 沿着FP递归访问
+	}
 
 	return 0;
 }
